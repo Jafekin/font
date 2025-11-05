@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📜 古文字识别助手</title>
+    <style>
+        :root {
+            /* 宣纸水墨风：米色宣纸背景 + 墨色主体 + 印章红点缀 */
+            --bg: linear-gradient(180deg, #f7f3e8 0%, #efe7d5 100%);
+            --panel: #fbf7ee; /* 宣纸卡片 */
+            --text: #2d2a26;
+            --muted: #6e6557;
+            --primary: #8c3b1a; /* 深褐墨色 */
+            --primary-hover: #a24a25;
+            --accent: #c72e2e; /* 印章红 */
+            --border: #d9cfbc;
+            --dashed: #d1c7b1;
+            --shadow-1: 0 12px 26px rgba(0,0,0,0.12);
+            --shadow-2: 0 6px 16px rgba(0,0,0,0.10);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans SC", "Helvetica Neue", Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1080px;
+            margin: 26px auto;
+            padding: 18px;
+            background: var(--panel);
+            border-radius: 24px;
+            box-shadow: var(--shadow-2);
+        }
+
+        /* Header */
+        .brand {
+            background: linear-gradient(135deg, #fbf7ee 0%, #f7f3e8 100%);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 24px;
+            margin-bottom: 24px;
+            box-shadow: 0 10px 24px rgba(199, 46, 46, 0.12);
+            text-align: center;
+        }
+
+        .brand .title {
+            font-size: 28px;
+            font-weight: 800;
+            letter-spacing: 0.2px;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 8px;
+        }
+
+        .brand .subtitle {
+            font-size: 14px;
+            color: var(--muted);
+            font-weight: 700;
+        }
+
+        /* Main layout */
+        .app-row {
+            display: flex;
+            flex-direction: row;
+            gap: 20px;
+            align-items: stretch;
+        }
+
+        .left-col, .right-col {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            flex: 1;
+        }
+
+        .panel {
+            background: #faf3e6;
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            padding: 18px;
+            box-shadow: var(--shadow-2);
+        }
+
+        .section-upload {
+            border: 1px solid var(--border);
+            background: #faf3e6;
+        }
+
+        .section-actions {
+            background: #f7efe0;
+            border: 1px dashed var(--dashed);
+        }
+
+        .section-result {
+            background: #f7f1e6;
+            border: 1px solid var(--border);
+            min-height: 420px;
+            overflow-y: auto;
+        }
+
+        .canvas-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .canvas-title {
+            font-weight: 700;
+            color: var(--text);
+            font-size: 16px;
+        }
+
+        .dashed {
+            border: 2px dashed var(--dashed);
+            border-radius: 12px;
+            padding: 12px;
+            color: var(--muted);
+            background: #fbf7ee;
+            margin-bottom: 12px;
+            font-size: 13px;
+        }
+
+        .input-group {
+            margin-bottom: 12px;
+        }
+
+        .input-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--text);
+        }
+
+        .input-group input[type="file"],
+        .input-group select,
+        .input-group textarea {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: #fbf7ee;
+            color: var(--text);
+            font-size: 13px;
+            font-family: inherit;
+        }
+
+        .input-group textarea:focus,
+        .input-group input[type="file"]:focus,
+        .input-group select:focus {
+            outline: none;
+            box-shadow: 0 0 0 2px rgba(199, 46, 46, 0.12);
+            border-color: var(--accent);
+            border-radius: 16px;
+        }
+
+        .input-group textarea {
+            resize: vertical;
+            min-height: 60px;
+        }
+
+        .image-preview {
+            width: 100%;
+            max-height: 360px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            object-fit: contain;
+            margin-bottom: 12px;
+        }
+
+        .top-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: space-between;
+            flex-wrap: wrap;
+        }
+
+        button {
+            flex: 1;
+            padding: 10px 16px;
+            border: none;
+            border-radius: 9999px;
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 8px 18px rgba(199, 46, 46, 0.18);
+        }
+
+        .btn-primary {
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+            color: #fff;
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(90deg, var(--primary-hover), var(--accent));
+            transform: translateY(-2px);
+            box-shadow: 0 12px 24px rgba(199, 46, 46, 0.25);
+        }
+
+        .btn-ghost {
+            background: #f7efe0;
+            color: var(--accent);
+            border: 1px solid var(--accent);
+            box-shadow: 0 6px 16px rgba(199, 46, 46, 0.10);
+        }
+
+        .btn-ghost:hover {
+            background: rgba(199, 46, 46, 0.05);
+        }
+
+        .btn-outline {
+            background: #fbf7ee;
+            color: var(--text);
+            border: 1px solid var(--border);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+
+        .btn-outline:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .result-area {
+            padding: 12px;
+            background: #fbf7ee;
+            border-radius: 12px;
+            margin-bottom: 12px;
+        }
+
+        .result-markdown {
+            line-height: 1.8;
+        }
+
+        .result-markdown h1,
+        .result-markdown h2,
+        .result-markdown h3 {
+            margin: 16px 0 8px 0;
+            font-weight: 700;
+            color: var(--text);
+        }
+
+        .result-markdown h1 {
+            font-size: 18px;
+        }
+
+        .result-markdown h2 {
+            font-size: 16px;
+        }
+
+        .result-markdown h3 {
+            font-size: 14px;
+        }
+
+        .result-markdown ul,
+        .result-markdown ol {
+            margin-left: 16px;
+            margin-bottom: 8px;
+        }
+
+        .result-markdown li {
+            margin-bottom: 4px;
+        }
+
+        .result-markdown code {
+            background: #f7f1e6;
+            border: 1px solid var(--border);
+            padding: 2px 6px;
+            border-radius: 10px;
+            color: var(--accent);
+            font-family: "Monaco", "Menlo", monospace;
+            font-size: 12px;
+        }
+
+        .result-markdown blockquote {
+            border-left: 4px solid var(--accent);
+            padding-left: 12px;
+            margin-left: 0;
+            color: var(--muted);
+            font-style: italic;
+        }
+
+        .copy-btn {
+            padding: 8px 12px;
+            font-size: 12px;
+            width: auto;
+            min-width: 60px;
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .spinner {
+            border: 3px solid rgba(199, 46, 46, 0.1);
+            border-top: 3px solid var(--accent);
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 10px;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        .error-msg, .success-msg {
+            padding: 10px 12px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            font-size: 13px;
+            border-left: 4px solid;
+        }
+
+        .error-msg {
+            background: #ffe6e6;
+            border-color: var(--accent);
+            color: var(--text);
+        }
+
+        .success-msg {
+            background: #e6ffe6;
+            border-color: #2cbe4e;
+            color: #0a5f1f;
+        }
+
+        @media (max-width: 880px) {
+            .app-row {
+                flex-direction: column;
+                gap: 16px;
+            }
+
+            .top-actions {
+                justify-content: space-between;
+            }
+
+            button {
+                min-width: 100px;
+            }
+        }
+
+        .history-panel {
+            margin-top: 20px;
+        }
+
+        .history-item {
+            background: #fbf7ee;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 8px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .history-item:hover {
+            background: #f7f1e6;
+            border-color: var(--accent);
+        }
+
+        .history-item-title {
+            font-weight: 600;
+            color: var(--text);
+            margin-bottom: 4px;
+        }
+
+        .history-item-time {
+            color: var(--muted);
+            font-size: 11px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Brand Header -->
+        <div class="brand">
+            <div class="title">📜 古文字识别助手</div>
+            <div class="subtitle">上传甲骨文/敦煌文书图片 · 识别与释读 · 提供考证建议</div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="app-row">
+            <!-- Left Column: Upload & Controls -->
+            <div class="left-col">
+                <!-- Upload Section -->
+                <div class="panel section-upload">
+                    <div class="canvas-header">
+                        <div class="canvas-title">古文字图片上传</div>
+                    </div>
+                    <div class="dashed">请上传清晰的古文字图片（PNG/JPG）。系统将识别可能的文字体系与时代，尝试释读并给出考证与拍摄建议。</div>
+                    
+                    <div class="input-group">
+                        <label for="imageInput">选择图片</label>
+                        <input type="file" id="imageInput" accept="image/*">
+                        <div id="imagePreviewContainer"></div>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="scriptType">文字类型</label>
+                        <select id="scriptType">
+                            <option value="甲骨文">甲骨文</option>
+                            <option value="敦煌文书">敦煌文书</option>
+                            <option value="金文">金文</option>
+                            <option value="篆书">篆书</option>
+                            <option value="隶书">隶书</option>
+                        </select>
+                    </div>
+
+                    <div class="input-group">
+                        <label for="hintText">可选提示</label>
+                        <textarea id="hintText" placeholder="时代/文本片段/出处等（可空）"></textarea>
+                    </div>
+                </div>
+
+                <!-- Actions Section -->
+                <div class="panel section-actions">
+                    <div class="top-actions">
+                        <button class="btn-primary" id="analyzeBtn">开始识别古文字</button>
+                        <button class="btn-ghost" id="clearBtn">清空结果</button>
+                        <button class="btn-outline" id="sampleBtn">快速示例</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: Results -->
+            <div class="right-col">
+                <div class="panel section-result">
+                    <div class="canvas-header">
+                        <div class="canvas-title">分析结果</div>
+                        <button class="copy-btn btn-outline" id="copyBtn" style="display:none;">复制</button>
+                    </div>
+
+                    <div id="loadingContainer" class="loading">
+                        <div class="spinner"></div>
+                        <div>分析中，请耐心等待...</div>
+                    </div>
+
+                    <div id="messageContainer"></div>
+
+                    <div id="resultContainer">
+                        <div class="result-area result-markdown" id="resultOutput">
+                            等待分析结果...
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- History Panel -->
+        <div class="history-panel panel">
+            <div class="canvas-title" style="margin-bottom: 12px;">📋 最近分析</div>
+            <div id="historyContainer" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px;">
+                <div style="color: var(--muted); text-align: center; padding: 20px;">暂无历史记录</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '';
+        const CSRF_TOKEN = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
+
+        // DOM Elements
+        const imageInput = document.getElementById('imageInput');
+        const scriptType = document.getElementById('scriptType');
+        const hintText = document.getElementById('hintText');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const sampleBtn = document.getElementById('sampleBtn');
+        const copyBtn = document.getElementById('copyBtn');
+        const resultOutput = document.getElementById('resultOutput');
+        const loadingContainer = document.getElementById('loadingContainer');
+        const messageContainer = document.getElementById('messageContainer');
+        const imagePreviewContainer = document.getElementById('imagePreviewContainer');
+        const historyContainer = document.getElementById('historyContainer');
+
+        // Event Listeners
+        imageInput.addEventListener('change', handleImageUpload);
+        analyzeBtn.addEventListener('click', analyzeImage);
+        clearBtn.addEventListener('click', clearResults);
+        sampleBtn.addEventListener('click', showSample);
+        copyBtn.addEventListener('click', copyResult);
+
+        // Handle image upload
+        function handleImageUpload(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    imagePreviewContainer.innerHTML = `
+                        <img src="${event.target.result}" class="image-preview" alt="Preview">
+                    `;
+                    // Auto-analyze when image is selected
+                    analyzeImage();
+                };
+                reader.readAsDataURL(file);
+            }
+        }
+
+        // Analyze image
+        async function analyzeImage() {
+            const file = imageInput.files[0];
+            if (!file) {
+                showMessage('请先上传古文字图片！', 'error');
+                return;
+            }
+
+            showLoading(true);
+            clearMessage();
+
+            const formData = new FormData();
+            formData.append('image', file);
+            formData.append('script_type', scriptType.value);
+            formData.append('hint', hintText.value);
+
+            try {
+                const response = await fetch(`${API_BASE}/api/analyze`, {
+                    method: 'POST',
+                    body: formData,
+                    headers: {
+                        'X-CSRFToken': CSRF_TOKEN,
+                    }
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    resultOutput.innerHTML = markdownToHtml(data.result);
+                    copyBtn.style.display = 'inline-block';
+                    showMessage('分析完成！', 'success');
+                    loadHistory();
+                } else {
+                    showMessage(data.error || '分析失败', 'error');
+                }
+            } catch (error) {
+                showMessage(`错误: ${error.message}`, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+
+        // Show loading spinner
+        function showLoading(show) {
+            loadingContainer.style.display = show ? 'block' : 'none';
+        }
+
+        // Show message
+        function showMessage(msg, type = 'error') {
+            const msgClass = type === 'error' ? 'error-msg' : 'success-msg';
+            messageContainer.innerHTML = `<div class="${msgClass}">${msg}</div>`;
+        }
+
+        // Clear message
+        function clearMessage() {
+            messageContainer.innerHTML = '';
+        }
+
+        // Clear results
+        function clearResults() {
+            imageInput.value = '';
+            hintText.value = '';
+            resultOutput.innerHTML = '等待分析结果...';
+            imagePreviewContainer.innerHTML = '';
+            copyBtn.style.display = 'none';
+            clearMessage();
+        }
+
+        // Show sample
+        function showSample() {
+            const sample = `> **示例结果**
+>
+> 这是一个示例分析结果。上传实际的古文字图片，系统将进行真实分析。
+>
+> # 初步判读
+> - 可能的文字体系：甲骨文、商代卜辞
+> - 书写方向：自右向左、自上而下
+>
+> # 字形要点与识别依据
+> - 关键字形笔画："口"形、"人"形构件
+> - 版面特征：刻痕明显，排列整齐
+>
+> # 进一步工作建议
+> - 建议使用高分辨率相机拍摄
+> - 可使用图像增强软件优化对比度`;
+            
+            resultOutput.innerHTML = markdownToHtml(sample);
+            copyBtn.style.display = 'inline-block';
+        }
+
+        // Copy result
+        function copyResult() {
+            const text = resultOutput.innerText;
+            navigator.clipboard.writeText(text).then(() => {
+                showMessage('已复制到剪贴板！', 'success');
+            }).catch(() => {
+                showMessage('复制失败，请重试', 'error');
+            });
+        }
+
+        // Convert markdown to HTML (simple version)
+        function markdownToHtml(markdown) {
+            let html = markdown
+                .replace(/^### (.*?)$/gm, '<h3>$1</h3>')
+                .replace(/^## (.*?)$/gm, '<h2>$1</h2>')
+                .replace(/^# (.*?)$/gm, '<h1>$1</h1>')
+                .replace(/\n- (.*?)(?=\n|$)/g, '\n<li>$1</li>')
+                .replace(/(<li>.*?<\/li>)/s, '<ul>$1</ul>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\*(.*?)\*/g, '<em>$1</em>')
+                .replace(/`(.*?)`/g, '<code>$1</code>')
+                .replace(/\n/g, '<br>')
+                .replace(/^> (.*?)$/gm, '<blockquote>$1</blockquote>');
+            
+            return html;
+        }
+
+        // Load history
+        async function loadHistory() {
+            try {
+                const response = await fetch(`${API_BASE}/api/history`);
+                const data = await response.json();
+
+                if (data.success && data.data.length > 0) {
+                    historyContainer.innerHTML = data.data.map(item => `
+                        <div class="history-item" onclick="showHistoryItem(this)">
+                            <div class="history-item-title">${item.script_type}</div>
+                            <div class="history-item-time">${item.created_at}</div>
+                        </div>
+                    `).join('');
+                }
+            } catch (error) {
+                console.error('Failed to load history:', error);
+            }
+        }
+
+        // Show history item
+        function showHistoryItem(element) {
+            const title = element.querySelector('.history-item-title').textContent;
+            showMessage(`已加载: ${title}`, 'success');
+        }
+
+        // Initialize
+        loadHistory();
+    </script>
+</body>
+</html>
