@@ -190,18 +190,13 @@ with open('image.jpg', 'rb') as f:
 
 ### settings.py 主要配置项
 
-```python
-# 上传文件大小限制（默认 50MB）
-DATA_UPLOAD_MAX_MEMORY_SIZE = 52428800
-FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800
-
-# OpenAI/百度 API 配置
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-OPENAI_BASE_URL = os.getenv('OPENAI_BASE_URL')
-
-# 上传文件存储位置
-MEDIA_ROOT = BASE_DIR / 'media'
-MEDIA_URL = '/media/'
+```text
+# 概念性 settings 关键项（示例，不是直接可复制代码）
+# 说明：以下变量实际应在 settings.py 中定义或已存在。
+# - DATA_UPLOAD_MAX_MEMORY_SIZE / FILE_UPLOAD_MAX_MEMORY_SIZE: 上传大小限制（例如 50MB）
+# - OPENAI_API_KEY / OPENAI_BASE_URL: 来自环境变量 (.env)
+# - MEDIA_ROOT / MEDIA_URL: 指向 media/ 与 '/media/'
+# - LANGUAGE_CODE / TIME_ZONE: 'zh-hans' / 'Asia/Shanghai'
 ```
 
 ## 故障排除
@@ -264,3 +259,109 @@ MIT License
 
 **最后更新**: 2025年10月31日
 
+## 🧠 多层次检索增强识别架构概述（RAG 更新）
+本项目现已引入“数据生成 → 特征向量化检索 → 知识融合生成 → 应用展示”四层架构：
+1. 数据生成模块：统一古籍多模态样本（图像 + OCR 文本 + 专家标注），规范化与结构化（计划：JSON-LD 格式）。
+2. 检索器模块：使用 CLIP 模型（`rag/embeddings.py`）将图像/文本转为 512 维向量，写入 Faiss 稠密索引，实现“以图搜图 / 以文搜图 / 以图找版本”。
+3. 生成器模块：通过 RAG 框架调用 ERNIE-4.5-Turbo-VL，将检索到的相似样本上下文（retrieved_context）与当前图片联合推理；支持高级 JSON 结构化输出 Prompt（`rag/prompt.py`）。
+4. 应用层：Django 提供上传、识别、历史记录、未来专家协同接口。
+
+### 新增目录
+```
+rag/
+├── embeddings.py      # CLIP 向量生成（延迟或立即加载）
+├── retriever.py       # Faiss 向量检索封装
+├── pipeline.py        # RAGPipeline 将检索 + Prompt + 生成串联
+├── prompt.py          # 高级 JSON 输出 Prompt 模板
+```
+
+### 快速向量索引构建（Faiss）
+```bash
+# 生成/重建向量索引（遍历 media/uploads 下图片）
+python scripts/build_index.py
+# 生成后得到: rag/faiss.index
+```
+
+### 使用 RAGPipeline 示例
+```python
+from rag.pipeline import RAGPipeline
+
+pipeline = RAGPipeline(index_path="rag/faiss.index", db_path="db.sqlite3")
+result_markdown_or_json = pipeline.run(
+    image_path="media/uploads/2025/11/05/example.png",
+    script_type="甲骨文",
+    hint="商晚期 卜辞 残片"
+)
+print(result_markdown_or_json)
+```
+> 当前 `pipeline.run` 返回依赖 `analyze_ancient_script` 的默认 Markdown；如需强制 JSON 结构化输出，可改为：
+```text
+# 强制 JSON 输出步骤（示例流程）
+1. 获取检索上下文列表 retrieved_context（如 Top-5 相似样本标题）。
+2. 调用 get_prompt(script_type, hint, retrieved_context)。
+3. 调用 analyze_ancient_script(image, script_type, hint, prompt=生成的prompt)。
+4. 得到的 result 即为模型返回的 JSON 字符串（需前端解析）。
+# 备注：示例中 image 为已加载的 PIL.Image 对象；所有步骤需在 Django 运行环境中。
+```
+
+### 高级 JSON Prompt 结构说明（与默认 Markdown 的区别）
+- 默认：`app/analysis.py` 在未传 `prompt` 时生成分节 Markdown。
+- 高级：`rag/prompt.py` 提供严格 JSON 模板（字段：preliminary_reading、glyph_keypoints_and_evidence、tentative_transcription 等）。
+- 集成策略：
+  1. 构建向量索引 → 检索 Top-K → 形成 `retrieved_context` 列表。
+  2. 使用 `get_prompt()` 生成带上下文的 JSON 结构 Prompt。
+  3. 调用 `analyze_ancient_script(..., prompt=prompt)` 获取 JSON 字符串。
+  4. 前端解析并展示（需在后续版本新增 JSON 渲染逻辑）。
+
+### 迁移文件（`app/migrations/`）处理建议
+| 场景 | 是否可删除迁移 | 操作建议 |
+|------|----------------|----------|
+| 个人本地试验（可丢弃数据） | ✅ 可 | 删除除 `__init__.py` 外文件 → 删除 `db.sqlite3` → 重新 `makemigrations && migrate` |
+| 已推送到远程仓库 / 团队协作 | ❌ 不建议 | 保留历史演进，避免同事数据库状态不一致 |
+| 准备重大模型重构且尚未上线生产 | ⚠ 评估后 | 在分支上清理并生成“squash”迁移，合并时公告 |
+| 已上线生产 | ❌ 禁止 | 使用新迁移增量演进；如需重构用数据迁移脚本（RunPython） |
+
+快速重置示例（仅开发环境）：
+```bash
+rm app/migrations/00*.py db.sqlite3
+python manage.py makemigrations
+python manage.py migrate
+```
+
+### 性能与资源提示
+- 首次加载 CLIP 模型会下载参数（建议在部署镜像阶段预下载）。
+- Faiss 检索为内存型；大规模数据请考虑 IVF/Flat+PQ、分片或 Milvus/Weaviate 等向量库。
+- 若 GPU 不可用，`torch` 会自动回退 CPU（速度降低）。
+- 结构化 JSON 输出对上下文长度敏感，建议限制检索条目（如 Top-5）。
+
+### 后续规划（Roadmap 摘要）
+- [ ] 将样本标注格式升级为 JSON-LD（含断裂等级 / 修复建议 / 版本指纹）。
+- [ ] 向量索引支持增量更新（新增图片自动追加）。
+- [ ] 将 RAGPipeline 的检索上下文持久化与缓存。
+- [ ] 前端支持 JSON 结构化结果的可视化标签（候选字高亮）。
+- [ ] 集成分布式任务队列（Celery）处理批量构建索引。
+
+## 🔌 新增依赖说明
+当前 `requirements.txt` 已包含：`faiss-cpu`, `torch`, `transformers`, `sentencepiece`；如遇 macOS ARM 架构安装问题，可尝试：
+```bash
+pip install --extra-index-url https://download.pytorch.org/whl/cpu torch --no-cache-dir
+```
+或使用 Conda 安装：
+```bash
+conda install -c pytorch pytorch
+conda install -c conda-forge faiss-cpu
+```
+
+## 🧪 简易验证脚本（向量 + 检索）
+```python
+from rag.embeddings import get_text_embedding
+from rag.retriever import FaissRetriever
+
+# 假设已构建 rag/faiss.index
+vec = get_text_embedding("甲骨文 卜辞 王卜")
+retriever = FaissRetriever("rag/faiss.index")
+print(retriever.search(vec, k=3))
+```
+
+## 📌 文档更新记录
+- 2025-11-07: 增补 RAG 多层架构、Faiss 构建与使用、JSON Prompt、迁移文件策略、性能与 Roadmap。

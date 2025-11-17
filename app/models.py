@@ -22,6 +22,25 @@ class ScriptAnalysis(models.Model):
     )
     hint = models.TextField(blank=True, null=True)
     result = models.TextField()
+    num_references = models.PositiveIntegerField(
+        default=0,
+        help_text='Number of contextual references used during analysis'
+    )
+    rag_references = models.TextField(
+        blank=True,
+        null=True,
+        help_text='Serialized reference identifiers returned by the RAG pipeline'
+    )
+    rag_scores = models.TextField(
+        blank=True,
+        null=True,
+        help_text='Serialized similarity scores for each retrieved reference'
+    )
+    rag_text_info = models.TextField(
+        blank=True,
+        null=True,
+        help_text='Serialized textual snippets retrieved alongside the image context'
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

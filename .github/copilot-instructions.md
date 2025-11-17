@@ -277,13 +277,13 @@ pip freeze > requirements.txt
 
 ```bash
 # 所有测试
-python manage.py test
+python manage.py tests
 
 # 特定应用
-python manage.py test app
+python manage.py tests app
 
 # 单个测试文件
-python manage.py test app.tests.test_views
+python manage.py tests app.tests.test_views
 ```
 
 ### 创建测试
