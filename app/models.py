@@ -7,6 +7,7 @@ class ScriptAnalysis(models.Model):
     """Store ancient script analysis results."""
 
     SCRIPT_TYPE_CHOICES = [
+        ('汉文', '汉文'),
         ('甲骨文', '甲骨文'),
         ('敦煌文书', '敦煌文书'),
         ('金文', '金文'),
@@ -18,7 +19,7 @@ class ScriptAnalysis(models.Model):
     script_type = models.CharField(
         max_length=20,
         choices=SCRIPT_TYPE_CHOICES,
-        default='甲骨文'
+        default='汉文'
     )
     hint = models.TextField(blank=True, null=True)
     result = models.TextField()

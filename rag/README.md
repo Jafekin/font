@@ -50,7 +50,7 @@ pipeline = RAGPipeline(index_path="rag/index")
 
 # 用户上传图片后，进行分析
 result = pipeline.run(
-    image_path="media/uploads/2025/11/12/001.jpg",
+    image_path="/Users/jafekin/Codes/Python Projects/font/data/名录 史记2025-11-6/A史记 集解本 1北宋刻本/【1】00393 史记一百三十卷 （汉）司马迁撰 （南朝宋）裴骃集解 北宋刻本（卷一至四、八至一百三十配南宋初建阳刻本） 北京大学图书馆/0000004a.jpg",
     script_type="汉文古籍",
     hint="用户提供的提示信息（可选）",
     k=5  # 检索top-5个相似图片

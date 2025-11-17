@@ -120,3 +120,31 @@ FILE_UPLOAD_MAX_MEMORY_SIZE = 52428800  # 50MB
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 OPENAI_BASE_URL = os.getenv(
     'OPENAI_BASE_URL', 'https://aistudio.baidu.com/llm/lmapi/v3')
+
+# Logging configuration
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[{levelname}] {asctime} {name}: {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'app.views': {
+            'handlers': ['console'],
+            'level': os.getenv('APP_LOG_LEVEL', 'INFO'),
+        },
+        '': {
+            'handlers': ['console'],
+            'level': os.getenv('DJANGO_LOG_LEVEL', 'WARNING'),
+        },
+    },
+}
