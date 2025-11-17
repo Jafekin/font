@@ -134,7 +134,7 @@ dmypy.json
 /staticfiles/
 /uploads/
 /data/名录 史记2025-11-6
-/rag/index
+/model/*
 
 # OS
 .DS_Store
