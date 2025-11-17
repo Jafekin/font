@@ -1,367 +1,214 @@
-# 📜 古文字识别助手 - Django 版本
+> *“把历史文献里的细小纹理交给机器看见，把识别到的故事交还给人。”*
 
-一个基于 Django 框架的古文字（甲骨文、敦煌文书等）识别和释读助手，集成了百度文心大模型的视觉识别能力。
+# 古文字识别助手 · Django
 
-## 功能特性
+跨越千年的手稿，需要一个足够细腻的数字伙伴。这个项目把 Django、视觉大模型与检索增强生成（RAG）放在同一个舞台，让甲骨文、敦煌文书、金石拓片都能在浏览器中获得即时的释读和结构化报告。
 
-✨ **核心功能**
-- 🖼️ 上传高清古文字图片（PNG/JPG）
-- 🤖 基于文心大模型的智能识别与释读
-- 📋 支持多种古文字体系（甲骨文、敦煌文书、金文、篆书、隶书）
-- 💡 提供用户提示支持（时代、文本片段、出处等）
-- 📊 完整的分析报告（Markdown 格式）
-- 💾 分析历史记录存储
-- 🎨 宣纸水墨风设计界面
+---
 
-## 安装与配置
+## 目录
+- [古文字识别助手 · Django](#古文字识别助手--django)
+  - [目录](#目录)
+  - [功能亮点](#功能亮点)
+  - [系统架构](#系统架构)
+  - [快速上手](#快速上手)
+  - [环境变量](#环境变量)
+  - [运行与调试](#运行与调试)
+  - [API 速览](#api-速览)
+  - [RAG 工作流](#rag-工作流)
+  - [项目结构](#项目结构)
+  - [常见问题](#常见问题)
+  - [路线图](#路线图)
+  - [许可证](#许可证)
 
-### 1. 环境准备
+---
+
+## 功能亮点
+
+| 功能 | 描述 |
+| --- | --- |
+| 多模态识别 | 上传 PNG/JPG 即刻触发 ERNIE-4.5-Turbo-VL，返回结构化 Markdown 或 JSON 报告。 |
+| 提示增强 | 支持年代、出处等自定义提示词，指导模型聚焦正确语境。 |
+| 历史留痕 | 自动记录分析历史，方便专家复盘与比对。 |
+| 宣纸风界面 | 原生模板提供素雅的水墨 UI，适合展陈或教学场景。 |
+| RAG 加持 | CLIP 向量、Faiss 检索与 Prompt 拼装，提供语境增强与引用依据。 |
+
+---
+
+## 系统架构
+
+```
+┌────────────┐     ┌──────────────┐     ┌──────────────┐     ┌────────────┐
+│ 前端上传层  │ ─→ │ Django 视图层 │ ─→ │ RAG Pipeline │ ─→ │ ERNIE-VL 模型 │
+└────────────┘     └──────────────┘     └──────────────┘     └────────────┘
+        ↑                    │                      │                    ↓
+      历史记录  ←────────────┘                      └── Faiss 索引 / CLIP 向量
+```
+
+关键模块：
+- **app/views.py**：HTTP 入口、文件解析、结果持久化。
+- **rag/embeddings.py**：惰性加载 CLIP，统一生成 512 维向量。
+- **rag/retriever.py**：封装 Faiss/文献检索逻辑。
+- **rag/prompt.py**：根据检索上下文构造 Markdown 或 JSON Prompt。
+- **rag/pipeline.py**：将检索、提示、LLM 调用串联，返回引用、得分、上下文片段等完整产物。
+
+---
+
+## 快速上手
 
 ```bash
-# 克隆或进入项目目录
-cd /Users/jafekin/Codes/Python\ Projects/font
+# 1. 克隆项目
+git clone <repo-url> font && cd font
 
-# 创建虚拟环境（推荐）
-python3 -m venv venv
-source venv/bin/activate  # macOS/Linux
-# venv\Scripts\activate   # Windows
+# 2. 创建虚拟环境（推荐同目录，不覆盖系统 Python）
+python3 -m venv .venv
+source .venv/bin/activate  # Windows 使用 .venv\Scripts\activate
 
-# 安装依赖
+# 3. 安装依赖
 pip install -r requirements.txt
+
+# 4. 初始化数据库
+.venv/bin/python manage.py migrate
+
+# 5.（可选）创建管理员
+.venv/bin/python manage.py createsuperuser
+
+# 6. 启动开发服务器
+.venv/bin/python manage.py runserver 0.0.0.0:8000
 ```
 
-### 2. 环境变量配置
+访问：
+- 前台界面：http://localhost:8000
+- Django Admin：http://localhost:8000/admin
 
-复制示例文件并配置：
+---
+
+## 环境变量
+
+将 `.env.example` 复制为 `.env`，填入以下字段：
+
+| 变量 | 示例值 | 说明 |
+| --- | --- | --- |
+| `DEBUG` | `True` | 生产务必改为 `False` |
+| `SECRET_KEY` | `change-me` | 生成随机字符串，防止安全风险 |
+| `OPENAI_API_KEY` | `your-baai-key` | 对接文心大模型的密钥 |
+| `OPENAI_BASE_URL` | `https://aistudio.baidu.com/llm/lmapi/v3` | 可替换成私有化接入网关 |
+| `ALLOWED_HOSTS` | `localhost,127.0.0.1` | 生产环境填入真实域名 |
+
+> 生产部署记得额外设置 `CSRF_TRUSTED_ORIGINS`、`SECURE_HSTS_SECONDS` 等安全参数。
+
+---
+
+## 运行与调试
 
 ```bash
-cp .env.example .env
+# 运行单元测试
+.venv/bin/python -m pytest tests
+
+# 构建 / 重建 Faiss 索引
+.venv/bin/python scripts/build_index.py --source media/uploads --out rag/faiss.index
+
+# 启动 VS Code 默认任务（server）
+# Cmd+Shift+B / Ctrl+Shift+B -> Django: Run Server
 ```
 
-编辑 `.env` 文件，配置以下内容：
+常用管理命令：
+- `python manage.py shell`：快速验证模型或 ORM。
+- `python manage.py collectstatic`：部署前收集静态文件。
+- `python manage.py dumpdata app.ScriptAnalysis`：导出历史分析记录备份。
 
-```env
-DEBUG=True
-SECRET_KEY=your-secret-key-change-this-in-production
-OPENAI_API_KEY=5124588afef0ea3dba67365a5b9cd429283ba74d
-OPENAI_BASE_URL=https://aistudio.baidu.com/llm/lmapi/v3
-ALLOWED_HOSTS=localhost,127.0.0.1
+---
+
+## API 速览
+
+| Endpoint | 方法 | 说明 |
+| --- | --- | --- |
+| `/` | GET | 首页上传界面 |
+| `/api/analyze` | POST (multipart) | 上传图片触发分析，返回 Markdown 报告 |
+| `/api/analyze-base64` | POST (JSON) | 传入 Base64 图片，适合移动端或前端截图 |
+| `/api/history` | GET | 获取最近 20 条分析记录 |
+
+示例（multipart）：
+
+```python
+import requests
+
+with open("tests/image/22.jpg", "rb") as f:
+    resp = requests.post(
+        "http://localhost:8000/api/analyze",
+        files={"image": f},
+        data={"script_type": "甲骨文", "hint": "商晚期 卜辞"}
+    )
+print(resp.json())
 ```
 
-> ⚠️ **生产环境注意**：
-> - 更改 `SECRET_KEY` 为一个安全的随机字符串
-> - 设置 `DEBUG=False`
-> - 配置正确的 `ALLOWED_HOSTS`
+---
 
-### 3. 数据库迁移
+## RAG 工作流
 
-```bash
-python manage.py migrate
+1. **嵌入**：`scripts/build_index.py` 遍历 `media/uploads`，调用 `rag/embeddings.py` 生成图文向量。
+2. **检索**：`rag/retriever.py` 通过 Faiss Top-K 搜索相似版本、题跋或拓片。
+3. **提示词**：`rag/prompt.py` 将检索到的上下文拼入高级 Prompt，可切换 Markdown / JSON 模板。
+4. **生成**：`rag/pipeline.py` 调用 `analyze_ancient_script`，输出分析正文、引用列表、分数、上下文片段数量等。
+
+快速调用：
+
+```python
+from rag.pipeline import RAGPipeline
+
+pipeline = RAGPipeline(index_path="rag/faiss.index")
+result = pipeline.run(
+    image_path="media/uploads/2025/11/05/example.png",
+    script_type="甲骨文",
+    hint="王卜辞"
+)
+print(result["analysis"])
+print(result["num_references"], result["retrieved_references"])
 ```
 
-### 4. 创建超级用户（可选）
-
-```bash
-python manage.py createsuperuser
-```
-
-## 快速开始
-
-### 1. 启动开发服务器
-
-```bash
-# 使用命令行
-python manage.py runserver
-
-# 或使用 VS Code 任务
-# 快捷键: Ctrl+Shift+B 或 Cmd+Shift+B (macOS)
-```
-
-### 2. 访问应用
-
-主页: **http://localhost:8000**
-
-后台管理: **http://localhost:8000/admin**
-
-**登录凭证**:
-- 用户名: `admin`
-- 密码: `password123`
-
-### 3. 使用应用
-
-1. 在主页上传古文字图片（PNG/JPG）
-2. 选择文字类型和提供可选提示
-3. 点击"开始识别古文字"
-4. 系统将调用百度文心大模型进行识别
-5. 查看分析结果和历史记录
+---
 
 ## 项目结构
 
 ```
 font/
-├── manage.py                 # Django 管理脚本
-├── requirements.txt          # Python 依赖
-├── .env.example             # 环境变量示例
-├── README.md                # 本文件
-│
-├── config/                  # Django 配置
-│   ├── settings.py          # 全局设置
-│   ├── urls.py              # URL 路由
-│   ├── wsgi.py              # WSGI 应用
-│   └── __init__.py
-│
-├── app/                     # 主应用
-│   ├── templates/
-│   │   └── index.html       # 前端界面
-│   ├── static/              # 静态文件（CSS/JS）
-│   ├── migrations/          # 数据库迁移
-│   ├── models.py            # 数据模型
-│   ├── views.py             # 业务逻辑
-│   ├── urls.py              # 应用路由
-│   ├── admin.py             # 后台管理配置
-│   ├── apps.py              # 应用配置
-│   └── __init__.py
-│
-└── media/                   # 用户上传文件
-    └── uploads/
+├── app/                 # Django 主应用（模型、视图、模板）
+├── config/              # 全局设置、路由、WSGI 入口
+├── rag/                 # 向量、检索、Prompt、Pipeline
+├── scripts/             # 数据与索引构建脚本
+├── media/uploads/       # 用户上传图片
+├── tests/               # Pytest 测试与示例图片
+├── requirements.txt     # 依赖列表
+└── README.md            # 项目前言
 ```
-
-## API 接口
-
-### 1. 主页
-- **URL**: `/`
-- **方法**: GET
-- **功能**: 返回前端界面
-
-### 2. 分析接口
-- **URL**: `/api/analyze`
-- **方法**: POST
-- **参数**:
-  - `image`: 图片文件 (必需)
-  - `script_type`: 文字类型 (可选，默认：甲骨文)
-  - `hint`: 用户提示 (可选)
-
-**请求示例**:
-```python
-import requests
-
-with open('image.jpg', 'rb') as f:
-    files = {'image': f}
-    data = {
-        'script_type': '甲骨文',
-        'hint': '商代卜辞'
-    }
-    response = requests.post('http://localhost:8000/api/analyze', files=files, data=data)
-    print(response.json())
-```
-
-**响应示例**:
-```json
-{
-  "success": true,
-  "result": "# 初步判读\n- 可能的文字体系：甲骨文...",
-  "analysis_id": 1
-}
-```
-
-### 3. Base64 分析接口
-- **URL**: `/api/analyze-base64`
-- **方法**: POST
-- **参数** (JSON):
-  - `image`: Base64 图片数据 (必需)
-  - `script_type`: 文字类型 (可选)
-  - `hint`: 用户提示 (可选)
-
-### 4. 历史记录接口
-- **URL**: `/api/history`
-- **方法**: GET
-- **响应**: 最近 20 条分析记录
-
-## 技术栈
-
-- **后端框架**: Django 4.2
-- **数据库**: SQLite（开发）/ PostgreSQL（生产推荐）
-- **AI 模型**: 百度文心大模型（ERNiE-4.5-Turbo-VL）
-- **API 库**: OpenAI Python SDK
-- **图像处理**: Pillow
-- **前端**: Vanilla JavaScript + CSS3
-
-## 配置文件说明
-
-### settings.py 主要配置项
-
-```text
-# 概念性 settings 关键项（示例，不是直接可复制代码）
-# 说明：以下变量实际应在 settings.py 中定义或已存在。
-# - DATA_UPLOAD_MAX_MEMORY_SIZE / FILE_UPLOAD_MAX_MEMORY_SIZE: 上传大小限制（例如 50MB）
-# - OPENAI_API_KEY / OPENAI_BASE_URL: 来自环境变量 (.env)
-# - MEDIA_ROOT / MEDIA_URL: 指向 media/ 与 '/media/'
-# - LANGUAGE_CODE / TIME_ZONE: 'zh-hans' / 'Asia/Shanghai'
-```
-
-## 故障排除
-
-### 问题 1: 导入 Pillow 失败
-
-```bash
-pip install --upgrade Pillow
-```
-
-### 问题 2: OpenAI API 错误
-
-检查：
-1. `OPENAI_API_KEY` 是否正确
-2. 网络连接是否正常
-3. API 配额是否充足
-
-### 问题 3: 图片上传失败
-
-- 检查文件大小是否超过限制
-- 确认文件格式为 PNG 或 JPG
-- 检查 `media/` 文件夹权限
-
-## 性能优化建议
-
-1. **生产部署**:
-   - 使用 PostgreSQL 替代 SQLite
-   - 配置 Nginx 反向代理
-   - 使用 Gunicorn 或 uWSGI 作为应用服务器
-   - 启用静态文件缓存
-
-2. **API 优化**:
-   - 添加请求缓存
-   - 实现异步任务队列（Celery）
-   - 添加速率限制
-
-3. **前端优化**:
-   - 压缩和最小化 CSS/JS
-   - 使用 CDN 加速
-   - 启用 Gzip 压缩
-
-## 扩展功能建议
-
-- 🔐 用户认证和权限管理
-- 📧 分析结果邮件通知
-- 🏷️ 标签和分类系统
-- 🔄 导出功能（PDF/Word）
-- 📱 移动端适配优化
-- 🌍 多语言支持
-
-## 许可证
-
-MIT License
-
-## 联系方式
-
-如有问题或建议，请提交 Issue 或 Pull Request。
 
 ---
 
-**最后更新**: 2025年10月31日
+## 常见问题
 
-## 🧠 多层次检索增强识别架构概述（RAG 更新）
-本项目现已引入“数据生成 → 特征向量化检索 → 知识融合生成 → 应用展示”四层架构：
-1. 数据生成模块：统一古籍多模态样本（图像 + OCR 文本 + 专家标注），规范化与结构化（计划：JSON-LD 格式）。
-2. 检索器模块：使用 CLIP 模型（`rag/embeddings.py`）将图像/文本转为 512 维向量，写入 Faiss 稠密索引，实现“以图搜图 / 以文搜图 / 以图找版本”。
-3. 生成器模块：通过 RAG 框架调用 ERNIE-4.5-Turbo-VL，将检索到的相似样本上下文（retrieved_context）与当前图片联合推理；支持高级 JSON 结构化输出 Prompt（`rag/prompt.py`）。
-4. 应用层：Django 提供上传、识别、历史记录、未来专家协同接口。
+**Q: 首次运行报错 `OpenAI library is not installed`？**  
+A: 重新执行 `pip install -r requirements.txt`，或确认虚拟环境已激活。
 
-### 新增目录
-```
-rag/
-├── embeddings.py      # CLIP 向量生成（延迟或立即加载）
-├── retriever.py       # Faiss 向量检索封装
-├── pipeline.py        # RAGPipeline 将检索 + Prompt + 生成串联
-├── prompt.py          # 高级 JSON 输出 Prompt 模板
-```
+**Q: 上传图片后报 500，提示 `analysis failed`？**  
+A: 检查 `.env` 中的密钥与 Base URL 是否可访问；必要时在 `app/views.py` 中打开日志。
 
-### 快速向量索引构建（Faiss）
-```bash
-# 生成/重建向量索引（遍历 media/uploads 下图片）
-python scripts/build_index.py
-# 生成后得到: rag/faiss.index
-```
+**Q: Faiss 索引过大或内存不足？**  
+A: 调整 `scripts/build_index.py` 的分桶策略，或考虑使用 Milvus/Weaviate 这样的向量数据库。
 
-### 使用 RAGPipeline 示例
-```python
-from rag.pipeline import RAGPipeline
+---
 
-pipeline = RAGPipeline(index_path="rag/faiss.index", db_path="db.sqlite3")
-result_markdown_or_json = pipeline.run(
-    image_path="media/uploads/2025/11/05/example.png",
-    script_type="甲骨文",
-    hint="商晚期 卜辞 残片"
-)
-print(result_markdown_or_json)
-```
-> 当前 `pipeline.run` 返回依赖 `analyze_ancient_script` 的默认 Markdown；如需强制 JSON 结构化输出，可改为：
-```text
-# 强制 JSON 输出步骤（示例流程）
-1. 获取检索上下文列表 retrieved_context（如 Top-5 相似样本标题）。
-2. 调用 get_prompt(script_type, hint, retrieved_context)。
-3. 调用 analyze_ancient_script(image, script_type, hint, prompt=生成的prompt)。
-4. 得到的 result 即为模型返回的 JSON 字符串（需前端解析）。
-# 备注：示例中 image 为已加载的 PIL.Image 对象；所有步骤需在 Django 运行环境中。
-```
+## 路线图
 
-### 高级 JSON Prompt 结构说明（与默认 Markdown 的区别）
-- 默认：`app/analysis.py` 在未传 `prompt` 时生成分节 Markdown。
-- 高级：`rag/prompt.py` 提供严格 JSON 模板（字段：preliminary_reading、glyph_keypoints_and_evidence、tentative_transcription 等）。
-- 集成策略：
-  1. 构建向量索引 → 检索 Top-K → 形成 `retrieved_context` 列表。
-  2. 使用 `get_prompt()` 生成带上下文的 JSON 结构 Prompt。
-  3. 调用 `analyze_ancient_script(..., prompt=prompt)` 获取 JSON 字符串。
-  4. 前端解析并展示（需在后续版本新增 JSON 渲染逻辑）。
+- [ ] JSON-LD 标注管线（断裂等级、修复建议、版本指纹）。
+- [ ] 向量索引增量更新与自动重建。
+- [ ] RAG 结果缓存与引用可视化。
+- [ ] Celery 异步任务，将批量识别与索引构建解耦。
+- [ ] 多语言界面与 API 结果翻译。
 
-### 迁移文件（`app/migrations/`）处理建议
-| 场景 | 是否可删除迁移 | 操作建议 |
-|------|----------------|----------|
-| 个人本地试验（可丢弃数据） | ✅ 可 | 删除除 `__init__.py` 外文件 → 删除 `db.sqlite3` → 重新 `makemigrations && migrate` |
-| 已推送到远程仓库 / 团队协作 | ❌ 不建议 | 保留历史演进，避免同事数据库状态不一致 |
-| 准备重大模型重构且尚未上线生产 | ⚠ 评估后 | 在分支上清理并生成“squash”迁移，合并时公告 |
-| 已上线生产 | ❌ 禁止 | 使用新迁移增量演进；如需重构用数据迁移脚本（RunPython） |
+---
 
-快速重置示例（仅开发环境）：
-```bash
-rm app/migrations/00*.py db.sqlite3
-python manage.py makemigrations
-python manage.py migrate
-```
+## 许可证
 
-### 性能与资源提示
-- 首次加载 CLIP 模型会下载参数（建议在部署镜像阶段预下载）。
-- Faiss 检索为内存型；大规模数据请考虑 IVF/Flat+PQ、分片或 Milvus/Weaviate 等向量库。
-- 若 GPU 不可用，`torch` 会自动回退 CPU（速度降低）。
-- 结构化 JSON 输出对上下文长度敏感，建议限制检索条目（如 Top-5）。
+MIT License © 古文字识别助手团队
 
-### 后续规划（Roadmap 摘要）
-- [ ] 将样本标注格式升级为 JSON-LD（含断裂等级 / 修复建议 / 版本指纹）。
-- [ ] 向量索引支持增量更新（新增图片自动追加）。
-- [ ] 将 RAGPipeline 的检索上下文持久化与缓存。
-- [ ] 前端支持 JSON 结构化结果的可视化标签（候选字高亮）。
-- [ ] 集成分布式任务队列（Celery）处理批量构建索引。
-
-## 🔌 新增依赖说明
-当前 `requirements.txt` 已包含：`faiss-cpu`, `torch`, `transformers`, `sentencepiece`；如遇 macOS ARM 架构安装问题，可尝试：
-```bash
-pip install --extra-index-url https://download.pytorch.org/whl/cpu torch --no-cache-dir
-```
-或使用 Conda 安装：
-```bash
-conda install -c pytorch pytorch
-conda install -c conda-forge faiss-cpu
-```
-
-## 🧪 简易验证脚本（向量 + 检索）
-```python
-from rag.embeddings import get_text_embedding
-from rag.retriever import FaissRetriever
-
-# 假设已构建 rag/faiss.index
-vec = get_text_embedding("甲骨文 卜辞 王卜")
-retriever = FaissRetriever("rag/faiss.index")
-print(retriever.search(vec, k=3))
-```
-
-## 📌 文档更新记录
-- 2025-11-07: 增补 RAG 多层架构、Faiss 构建与使用、JSON Prompt、迁移文件策略、性能与 Roadmap。
+欢迎通过 Issue / PR 分享你的发现、想法或下一步需求。
