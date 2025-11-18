@@ -275,6 +275,10 @@
             margin-bottom: 4px;
         }
 
+        .result-markdown p {
+            margin-bottom: 10px;
+        }
+
         .result-markdown code {
             background: #f7f1e6;
             border: 1px solid var(--border);
@@ -283,6 +287,25 @@
             color: var(--accent);
             font-family: "Monaco", "Menlo", monospace;
             font-size: 12px;
+        }
+
+        .result-markdown table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0;
+            font-size: 13px;
+        }
+
+        .result-markdown th,
+        .result-markdown td {
+            border: 1px solid var(--border);
+            padding: 8px;
+            text-align: left;
+        }
+
+        .result-markdown th {
+            background: #f0e7d6;
+            font-weight: 600;
         }
 
         .result-markdown blockquote {
@@ -478,6 +501,8 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.6/dist/purify.min.js"></script>
     <script>
         const API_BASE = '';
         const CSRF_TOKEN = document.querySelector('[name=csrfmiddlewaretoken]')?.value || '';
@@ -495,6 +520,15 @@
         const messageContainer = document.getElementById('messageContainer');
         const imagePreviewContainer = document.getElementById('imagePreviewContainer');
         const historyContainer = document.getElementById('historyContainer');
+
+        if (window.marked) {
+            marked.setOptions({
+                gfm: true,
+                breaks: true,
+                headerIds: false,
+                mangle: false,
+            });
+        }
 
         // Event Listeners
         imageInput.addEventListener('change', handleImageUpload);
@@ -619,21 +653,27 @@
             });
         }
 
-        // Convert markdown to HTML (simple version)
+        // Convert markdown to HTML using marked + DOMPurify with fallback
         function markdownToHtml(markdown) {
-            let html = markdown
+            if (!markdown) {
+                return '';
+            }
+
+            if (window.marked) {
+                const rawHtml = marked.parse(markdown);
+                return window.DOMPurify ? DOMPurify.sanitize(rawHtml) : rawHtml;
+            }
+
+            // Fallback minimal rendering
+            return markdown
                 .replace(/^### (.*?)$/gm, '<h3>$1</h3>')
                 .replace(/^## (.*?)$/gm, '<h2>$1</h2>')
                 .replace(/^# (.*?)$/gm, '<h1>$1</h1>')
-                .replace(/\n- (.*?)(?=\n|$)/g, '\n<li>$1</li>')
-                .replace(/(<li>.*?<\/li>)/s, '<ul>$1</ul>')
+                .replace(/^> (.*?)$/gm, '<blockquote>$1</blockquote>')
                 .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
                 .replace(/\*(.*?)\*/g, '<em>$1</em>')
                 .replace(/`(.*?)`/g, '<code>$1</code>')
-                .replace(/\n/g, '<br>')
-                .replace(/^> (.*?)$/gm, '<blockquote>$1</blockquote>');
-            
-            return html;
+                .replace(/\n/g, '<br>');
         }
 
         // Load history
