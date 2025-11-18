@@ -1,5 +1,6 @@
 """Views for ancient script recognition app with end-to-end RAG integration."""
 import base64
+import io
 import json
 import logging
 import os
@@ -19,6 +20,13 @@ from rag.pipeline import RAGPipeline, analyze_with_llm
 
 logger = logging.getLogger(__name__)
 
+MAX_UPLOAD_BYTES = 1 * 1024 * 1024
+
+try:  # Pillow >= 10 namespaces resampling filters
+    RESAMPLE_LANCZOS = Image.Resampling.LANCZOS
+except AttributeError:  # pragma: no cover - fallback for older Pillow
+    RESAMPLE_LANCZOS = Image.LANCZOS
+
 _RAG_PIPELINE: RAGPipeline | None = None
 
 
@@ -34,6 +42,87 @@ def _get_rag_pipeline() -> RAGPipeline:
     return _RAG_PIPELINE
 
 
+def _compress_image_to_limit(path: str, max_bytes: int = MAX_UPLOAD_BYTES) -> None:
+    """Re-encode/downscale an image until it is below ``max_bytes`` when possible."""
+    if not path or not os.path.exists(path):
+        return
+    if os.path.getsize(path) <= max_bytes:
+        return
+
+    try:
+        with Image.open(path) as img:
+            img.load()
+            original_format = (img.format or 'PNG').upper()
+            candidates: list[tuple[str, Image.Image]] = [
+                (original_format, img.copy())]
+            if original_format not in {'JPEG', 'JPG', 'WEBP'}:
+                candidates.append(('JPEG', img.convert('RGB')))
+
+            for target_format, base_image in candidates:
+                supports_quality = target_format in {'JPEG', 'JPG', 'WEBP'}
+                quality_steps = [95, 85, 75, 65, 55, 45,
+                                 35] if supports_quality else [None]
+                scales = [1.0, 0.85, 0.7, 0.55, 0.4, 0.25]
+
+                for scale in scales:
+                    if scale == 1.0:
+                        scaled_image = base_image
+                    else:
+                        new_size = (
+                            max(1, int(base_image.width * scale)),
+                            max(1, int(base_image.height * scale))
+                        )
+                        scaled_image = base_image.resize(
+                            new_size, RESAMPLE_LANCZOS)
+
+                    for quality in quality_steps:
+                        buffer = io.BytesIO()
+                        save_kwargs = {'optimize': True}
+                        if supports_quality and quality is not None:
+                            save_kwargs['quality'] = quality
+
+                        scaled_image.save(
+                            buffer, format=target_format, **save_kwargs)
+                        size = buffer.tell()
+                        if size <= max_bytes:
+                            with open(path, 'wb') as outfile:
+                                outfile.write(buffer.getvalue())
+                            logger.debug(
+                                "Compressed %s to %d bytes (format=%s scale=%.2f quality=%s)",
+                                path,
+                                size,
+                                target_format,
+                                scale,
+                                quality,
+                            )
+                            return
+
+                        is_last_quality = quality is None or quality == quality_steps[-1]
+                        if is_last_quality:
+                            # Persist best effort for this scale before further downscaling.
+                            with open(path, 'wb') as outfile:
+                                outfile.write(buffer.getvalue())
+                            break
+                        # Try next (lower) quality setting.
+                    # Proceed to next scale if still too large.
+
+            logger.warning("Unable to shrink %s below %d bytes",
+                           path, max_bytes)
+    except Exception:
+        logger.exception("Image compression failed for %s", path)
+
+
+def _content_file_from_path(path: str, name: str | None = None) -> ContentFile | None:
+    """Read a filesystem path into a Django ContentFile for model storage."""
+    if not path or not os.path.exists(path):
+        return None
+    with open(path, 'rb') as source:
+        data = source.read()
+    content = ContentFile(data)
+    content.name = name or os.path.basename(path)
+    return content
+
+
 def _persist_uploaded_file(uploaded_file) -> str:
     """Write an uploaded file to a temporary location and rewind the stream."""
     suffix = os.path.splitext(getattr(uploaded_file, 'name', 'upload.png'))[
@@ -43,6 +132,7 @@ def _persist_uploaded_file(uploaded_file) -> str:
         temp_file.write(chunk)
     temp_file.flush()
     temp_file.close()
+    _compress_image_to_limit(temp_file.name)
     uploaded_file.seek(0)
     logger.debug("Persisted uploaded file %s to temp path %s",
                  getattr(uploaded_file, 'name', 'upload'), temp_file.name)
@@ -55,6 +145,7 @@ def _persist_bytes(image_bytes: bytes, suffix: str = '.png') -> str:
     temp_file.write(image_bytes)
     temp_file.flush()
     temp_file.close()
+    _compress_image_to_limit(temp_file.name)
     logger.debug("Persisted raw bytes to temp path %s", temp_file.name)
     return temp_file.name
 
@@ -141,15 +232,18 @@ def analyze(request):
                     script_type, getattr(image_file, 'name', 'upload'))
 
         temp_path = _persist_uploaded_file(image_file)
+        stored_file = None
         try:
             rag_payload = _run_rag_pipeline(temp_path, script_type, hint)
             result_text, rag_meta = _prepare_rag_response(
                 rag_payload, temp_path, script_type, hint)
+            stored_file = _content_file_from_path(
+                temp_path, getattr(image_file, 'name', 'upload'))
         finally:
             _cleanup_temp_file(temp_path)
 
         analysis = ScriptAnalysis.objects.create(
-            image=image_file,
+            image=stored_file or image_file,
             script_type=script_type,
             hint=hint,
             result=result_text,
@@ -197,24 +291,26 @@ def analyze_base64(request):
         image_bytes = base64.b64decode(image_data)
         script_type = data.get('script_type', '甲骨文')
         hint = data.get('hint', '')
+        filename = data.get(
+            'filename') or f"upload_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.png"
 
         logger.info(
             "Received base64 analysis request script_type=%s", script_type)
 
         temp_path = _persist_bytes(image_bytes)
+        stored_file = None
         try:
             rag_payload = _run_rag_pipeline(temp_path, script_type, hint)
             result_text, rag_meta = _prepare_rag_response(
                 rag_payload, temp_path, script_type, hint)
+            stored_file = _content_file_from_path(temp_path, filename)
         finally:
             _cleanup_temp_file(temp_path)
 
-        filename = data.get(
-            'filename') or f"upload_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.png"
-        image_file = ContentFile(image_bytes, name=filename)
+        fallback_file = ContentFile(image_bytes, name=filename)
 
         analysis = ScriptAnalysis.objects.create(
-            image=image_file,
+            image=stored_file or fallback_file,
             script_type=script_type,
             hint=hint,
             result=result_text,

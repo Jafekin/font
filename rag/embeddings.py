@@ -1,98 +1,107 @@
-"""
-Vectorization utilities using txtai for image and text embeddings.
-- Provides unified image and text embeddings through txtai Embeddings API.
-- Supports multiple embedding models including CLIP and other transformers.
-- Lazy-loaded model initialization to avoid heavy startup time.
-- Automatically selects CPU/GPU based on availability.
-- Optional L2 normalization for stable similarity comparisons.
-"""
+"""Chinese-CLIP based embedding helpers for the RAG pipeline."""
+
 from __future__ import annotations
+
+import importlib
 import os
-from typing import List, Any
+import sys
+from functools import lru_cache
+from pathlib import Path
+from typing import Any, List
 
-# Configuration
-# 使用与build_index.py相同的默认模型，确保兼容性
-MODEL_NAME = "clip-ViT-B-32"  # CLIP模型，支持图片和文本的统一向量空间
+import numpy as np
+import torch
+from PIL import Image
 
-# Internal cache for embeddings instance (lazy load)
-_embeddings: Any | None = None
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+CLIP_THIRDPARTY = PROJECT_ROOT / "thirdparty" / "Chinese-CLIP"
+if CLIP_THIRDPARTY.exists():
+    sys.path.insert(0, str(CLIP_THIRDPARTY))
 
-# Flag for test/fake mode
+# Configuration与`scripts/build_index.py`保持一致
+MODEL_NAME = "OFA-Sys/chinese-clip-vit-base-patch16"
+DEVICE = os.getenv("RAG_DEVICE") or (
+    "cuda" if torch.cuda.is_available() else "cpu")
+
+HF_MODEL_ALIASES = {
+    "chinese-clip-vit-base-patch16": "ViT-B-16",
+    "chinese-clip-vit-large-patch14": "ViT-L-14",
+    "chinese-clip-vit-large-patch14-336px": "ViT-L-14-336",
+    "chinese-clip-vit-huge-patch14": "ViT-H-14",
+    "chinese-clip-rn50": "RN50",
+}
+
 _FAKE_MODE = os.getenv("RAG_FAKE_EMBEDDINGS") == "1"
 
-# ---------------------------------------------------------------------------
-# Fake embeddings (deterministic for tests)
-# ---------------------------------------------------------------------------
+
+@lru_cache(maxsize=1)
+def _load_cn_clip_module():
+    try:
+        return importlib.import_module("cn_clip.clip")
+    except ImportError as exc:  # pragma: no cover - 环境问题
+        raise ImportError(
+            "无法导入 cn_clip.clip，请先运行 pip install -e thirdparty/Chinese-CLIP"
+        ) from exc
 
 
-class _FakeEmbeddings:
-    """Lightweight fake embeddings used in tests to avoid importing torch/txtai."""
+class _FakeClip:
+    """Deterministic fallback when heavy deps不可用。"""
 
-    def transform(self, docs):
-        import numpy as np
-        vectors = []
-        for uid, content, _ in docs:
-            seed = abs(hash(uid)) % (2**32)
-            rng = np.random.default_rng(seed)
-            vectors.append(rng.normal(size=512).astype("float32"))
-        return vectors
+    dim = 512
 
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
+    @staticmethod
+    def _vec(seed_obj: Any) -> np.ndarray:
+        rng = np.random.default_rng(abs(hash(seed_obj)) % (2**32))
+        vec = rng.normal(size=_FakeClip.dim).astype("float32")
+        vec /= np.linalg.norm(vec) + 1e-9
+        return vec
+
+    def encode_image(self, image_path: str) -> np.ndarray:
+        return self._vec(("image", image_path))
+
+    def encode_text(self, text: str) -> np.ndarray:
+        return self._vec(("text", text))
 
 
-def _ensure_embeddings():
-    """Lazy-loads the embeddings instance once; supports fake mode."""
-    global _embeddings
-    if _embeddings is not None:
-        return _embeddings
-
+@lru_cache(maxsize=1)
+def _load_chinese_clip():
     if _FAKE_MODE:
-        _embeddings = _FakeEmbeddings()
-        return _embeddings
+        return _FakeClip(), None
 
-    try:
-        from txtai.embeddings import Embeddings  # type: ignore
-    except Exception:
-        _embeddings = _FakeEmbeddings()
-        return _embeddings
+    clip = _load_cn_clip_module()
+    load_from_name = getattr(clip, "load_from_name")
 
-    try:
-        # 使用与build_index.py相同的配置，确保兼容性
-        # 使用sentence-transformers方法（支持CLIP模型处理图片）
-        _embeddings = Embeddings({
-            "method": "sentence-transformers",  # 使用sentence-transformers方法（支持CLIP）
-            "path": MODEL_NAME,
-            "gpu": True,  # 自动选择GPU/CPU
-            "content": True,
-            "format": "numpy",
-        })
-    except Exception:
-        _embeddings = _FakeEmbeddings()
-    return _embeddings
+    resolved_name = _resolve_loader_model_name(MODEL_NAME)
+
+    cache_dir = os.path.join(os.path.dirname(
+        os.path.dirname(__file__)), "model")
+    os.makedirs(cache_dir, exist_ok=True)
+    model, preprocess = load_from_name(
+        resolved_name,
+        device=torch.device(DEVICE),
+        download_root=cache_dir,
+        use_modelscope=False,
+    )
+    model.eval()
+    return model, preprocess
 
 
-def _to_list(embedding) -> List[float]:
-    if hasattr(embedding, "tolist"):
-        return embedding.tolist()
-    return list(embedding)
+def _normalize(vec: np.ndarray) -> List[float]:
+    @lru_cache(maxsize=1)
+    def _load_cn_clip_module():
+        try:
+            return importlib.import_module("cn_clip.clip")
+        except ImportError as exc:  # pragma: no cover - 环境问题
+            raise ImportError(
+                "无法导入 cn_clip.clip，请先运行 pip install -e thirdparty/Chinese-CLIP"
+            ) from exc
 
-
-def _normalize(vec: List[float]) -> List[float]:
-    if not vec:
-        return vec
-    import math
-    norm = math.sqrt(sum(v * v for v in vec))
+    if not isinstance(vec, np.ndarray):
+        vec = np.asarray(vec, dtype=np.float32)
+    norm = np.linalg.norm(vec)
     if norm == 0:
-        return vec
-    return [v / norm for v in vec]
-
-
-def _single(doc_id: str, payload: str) -> List[List[float]]:
-    embeddings = _ensure_embeddings()
-    result = embeddings.transform([(doc_id, payload, None)])
-    return result
+        return vec.tolist()
+    return (vec / norm).astype("float32").tolist()
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -100,75 +109,91 @@ def _single(doc_id: str, payload: str) -> List[List[float]]:
 
 
 def get_image_embedding(image_path: str, *, normalize: bool = True) -> List[float]:
-    """Generates an embedding for an image file using txtai or fake embeddings."""
+    """Build embedding for单张图片."""
+
     if not os.path.isfile(image_path):
         raise FileNotFoundError(f"Image not found: {image_path}")
-    try:
-        uid = os.path.basename(image_path)
-        result = _single(uid, image_path)
-        if result and len(result) > 0:
-            vec = _to_list(result[0])
-            return _normalize(vec) if normalize else vec
-        raise RuntimeError(
-            f"Failed to generate embedding for image: {image_path}")
-    except Exception as e:
-        raise RuntimeError(f"Failed to generate image embedding: {e}")
+
+    model, preprocess = _load_chinese_clip()
+    if isinstance(model, _FakeClip):
+        vec = model.encode_image(image_path)
+        return vec.tolist()
+
+    with torch.no_grad():
+        image = preprocess(Image.open(image_path)).unsqueeze(0).to(DEVICE)
+        vec = model.encode_image(image)
+        vec = vec.squeeze(0).cpu().numpy()
+    return _normalize(vec) if normalize else vec.tolist()
 
 
 def get_text_embedding(text: str, *, normalize: bool = True) -> List[float]:
-    """Generates an embedding for a text string using txtai or fake embeddings."""
     if not text or not text.strip():
         raise ValueError("Text must be a non-empty string.")
-    try:
-        result = _single("text_input", text)
-        if result and len(result) > 0:
-            vec = _to_list(result[0])
-            return _normalize(vec) if normalize else vec
-        raise RuntimeError("Failed to generate embedding for text")
-    except Exception as e:
-        raise RuntimeError(f"Failed to generate text embedding: {e}")
+
+    model, _ = _load_chinese_clip()
+    if isinstance(model, _FakeClip):
+        vec = model.encode_text(text)
+        return vec.tolist()
+
+    clip = _load_cn_clip_module()
+    tokens = clip.tokenize([text]).to(DEVICE)
+    with torch.no_grad():
+        vec = model.encode_text(tokens)
+        vec = vec.squeeze(0).cpu().numpy()
+    return _normalize(vec) if normalize else vec.tolist()
 
 
 def batch_image_embeddings(image_paths: List[str], *, normalize: bool = True) -> List[List[float]]:
-    """Generates embeddings for multiple images efficiently."""
     if not image_paths:
         raise ValueError("image_paths must not be empty")
-    embeddings = _ensure_embeddings()
-    documents = [
-        (os.path.basename(path), path, None)
-        for path in image_paths if os.path.isfile(path)
-    ]
-    if not documents:
+
+    model, preprocess = _load_chinese_clip()
+    valid_paths = [p for p in image_paths if os.path.isfile(p)]
+    if not valid_paths:
         raise ValueError("No valid image files found in image_paths")
-    try:
-        results = embeddings.transform(documents)
-        if results is None:
-            raise RuntimeError("Failed to generate batch embeddings")
-        processed = [_to_list(emb) for emb in results]
-        return [_normalize(v) for v in processed] if normalize else processed
-    except Exception as e:
-        raise RuntimeError(f"Failed to generate batch image embeddings: {e}")
+
+    if isinstance(model, _FakeClip):
+        return [model.encode_image(path).tolist() for path in valid_paths]
+
+    vectors: List[List[float]] = []
+    batch_tensors = []
+    for path in valid_paths:
+        tensor = preprocess(Image.open(path)).unsqueeze(0)
+        batch_tensors.append(tensor)
+
+        if len(batch_tensors) == 8:
+            vectors.extend(_encode_image_batch(
+                model, batch_tensors, normalize))
+            batch_tensors = []
+
+    if batch_tensors:
+        vectors.extend(_encode_image_batch(model, batch_tensors, normalize))
+
+    return vectors
 
 
 def batch_text_embeddings(texts: List[str], *, normalize: bool = True) -> List[List[float]]:
-    """Generates embeddings for multiple text strings efficiently."""
-    if not texts:
-        raise ValueError("texts must not be empty")
-    embeddings = _ensure_embeddings()
-    documents = [
-        (f"text_{i}", text, None)
-        for i, text in enumerate(texts) if text and text.strip()
-    ]
-    if not documents:
+    valid_texts = [t for t in texts if t and t.strip()]
+    if not valid_texts:
         raise ValueError("No valid texts found in input")
-    try:
-        results = embeddings.transform(documents)
-        if results is None:
-            raise RuntimeError("Failed to generate batch text embeddings")
-        processed = [_to_list(emb) for emb in results]
-        return [_normalize(v) for v in processed] if normalize else processed
-    except Exception as e:
-        raise RuntimeError(f"Failed to generate batch text embeddings: {e}")
+
+    model, _ = _load_chinese_clip()
+    if isinstance(model, _FakeClip):
+        return [model.encode_text(text).tolist() for text in valid_texts]
+
+    clip = _load_cn_clip_module()
+    vectors: List[List[float]] = []
+    batch_size = 16
+    for i in range(0, len(valid_texts), batch_size):
+        chunk = valid_texts[i:i + batch_size]
+        tokens = clip.tokenize(chunk).to(DEVICE)
+        with torch.no_grad():
+            vec = model.encode_text(tokens).cpu().numpy()
+        if normalize:
+            vec = vec / (np.linalg.norm(vec, axis=1, keepdims=True) + 1e-9)
+        vectors.extend(vec.astype("float32").tolist())
+
+    return vectors
 
 # ---------------------------------------------------------------------------
 # (Optional) Index build helper for future extension
@@ -176,16 +201,31 @@ def batch_text_embeddings(texts: List[str], *, normalize: bool = True) -> List[L
 
 
 def build_embeddings_index(items: List[str], output_dir: str) -> None:
-    """Builds and saves a txtai index from a list of text items.
-    (Image indexing would require extraction -> text; left for future.)
-    """
-    if _FAKE_MODE:
-        return  # Skip heavy ops in fake mode
-    try:
-        from txtai.embeddings import Embeddings  # type: ignore
-        emb = Embeddings({"path": MODEL_NAME, "content": True})
-        emb.index([(str(i), text, None) for i, text in enumerate(items)])
-        os.makedirs(output_dir, exist_ok=True)
-        emb.save(output_dir)
-    except Exception as e:
-        raise RuntimeError(f"Failed to build index: {e}")
+    raise NotImplementedError("索引构建已迁移到 scripts/build_index.py")
+
+
+def _encode_image_batch(model, tensors, normalize):
+    stacked = torch.cat(tensors, dim=0).to(DEVICE)
+    with torch.no_grad():
+        vec = model.encode_image(stacked).cpu().numpy()
+    if normalize:
+        vec = vec / (np.linalg.norm(vec, axis=1, keepdims=True) + 1e-9)
+    return vec.astype("float32").tolist()
+
+
+def _resolve_loader_model_name(config_name: str) -> str:
+    """将 HuggingFace Repo ID 映射到 Chinese-CLIP 原生名称。"""
+
+    name = (config_name or "").strip()
+    if not name:
+        return "ViT-B-16"
+
+    if os.path.isfile(name):
+        return name
+
+    normalized = name.split("/", 1)[1] if "/" in name else name
+    normalized = normalized.strip().lower()
+    if normalized in HF_MODEL_ALIASES:
+        return HF_MODEL_ALIASES[normalized]
+
+    return name

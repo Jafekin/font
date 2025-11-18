@@ -31,7 +31,7 @@
 | 提示增强 | 支持年代、出处等自定义提示词，指导模型聚焦正确语境。 |
 | 历史留痕 | 自动记录分析历史，方便专家复盘与比对。 |
 | 宣纸风界面 | 原生模板提供素雅的水墨 UI，适合展陈或教学场景。 |
-| RAG 加持 | CLIP 向量、Faiss 检索与 Prompt 拼装，提供语境增强与引用依据。 |
+| RAG 加持 | Chinese-CLIP 向量、轻量 numpy 检索与 Prompt 拼装，提供语境增强与引用依据。 |
 
 ---
 
@@ -47,8 +47,8 @@
 
 关键模块：
 - **app/views.py**：HTTP 入口、文件解析、结果持久化。
-- **rag/embeddings.py**：惰性加载 CLIP，统一生成 512 维向量。
-- **rag/retriever.py**：封装 Faiss/文献检索逻辑。
+- **rag/embeddings.py**：惰性加载 Chinese-CLIP，统一生成 512 维向量。
+- **rag/retriever.py**：直接读取 `embeddings.npy` + `ids.json`，完成相似度检索与过滤。
 - **rag/prompt.py**：根据检索上下文构造 Markdown 或 JSON Prompt。
 - **rag/pipeline.py**：将检索、提示、LLM 调用串联，返回引用、得分、上下文片段等完整产物。
 
@@ -105,8 +105,9 @@ pip install -r requirements.txt
 # 运行单元测试
 .venv/bin/python -m pytest tests
 
-# 构建 / 重建 Faiss 索引
-.venv/bin/python scripts/build_index.py --source media/uploads --out rag/faiss.index
+# 构建 / 重建 Chinese-CLIP 索引（numpy 文件）
+pip install -e thirdparty/Chinese-CLIP  # 首次需要安装子模块
+.venv/bin/python scripts/build_index.py --image-dir media/uploads --index-path rag/index --image-weight 0.65
 
 # 启动 VS Code 默认任务（server）
 # Cmd+Shift+B / Ctrl+Shift+B -> Django: Run Server
@@ -146,8 +147,8 @@ print(resp.json())
 
 ## RAG 工作流
 
-1. **嵌入**：`scripts/build_index.py` 遍历 `media/uploads`，调用 `rag/embeddings.py` 生成图文向量。
-2. **检索**：`rag/retriever.py` 通过 Faiss Top-K 搜索相似版本、题跋或拓片。
+1. **嵌入**：`scripts/build_index.py` 遍历 `media/uploads`，调用 `rag/embeddings.py` 生成图文向量，并保存 `embeddings.npy`、`ids.json`、`metadata.json`。
+2. **检索**：`rag/retriever.py` 直接加载这些 numpy/JSON 文件完成 Top-K 搜索，不再依赖 txtai/Faiss。
 3. **提示词**：`rag/prompt.py` 将检索到的上下文拼入高级 Prompt，可切换 Markdown / JSON 模板。
 4. **生成**：`rag/pipeline.py` 调用 `analyze_ancient_script`，输出分析正文、引用列表、分数、上下文片段数量等。
 
@@ -156,7 +157,7 @@ print(resp.json())
 ```python
 from rag.pipeline import RAGPipeline
 
-pipeline = RAGPipeline(index_path="rag/faiss.index")
+pipeline = RAGPipeline(index_path="rag/index")
 result = pipeline.run(
     image_path="media/uploads/2025/11/05/example.png",
     script_type="甲骨文",
@@ -209,6 +210,6 @@ A: 调整 `scripts/build_index.py` 的分桶策略，或考虑使用 Milvus/Weav
 
 ## 许可证
 
-MIT License © 古文字识别助手团队
+MIT License © Jafekin, Dalian University of Technology
 
 欢迎通过 Issue / PR 分享你的发现、想法或下一步需求。

@@ -230,7 +230,7 @@ class RAGPipeline:
         初始化RAG管道
 
         Args:
-            index_path: txtai索引路径
+            index_path: numpy 索引路径（包含 embeddings.npy 等文件）
             db_path: 数据库路径（可选，用于未来扩展）
         """
         self.retriever = TxtaiRetriever(index_path)
@@ -244,7 +244,7 @@ class RAGPipeline:
         image_path: str,
         script_type: str,
         hint: Optional[str] = None,
-        k: int = 5,
+        k: int = 3,
         metadata_filters: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
@@ -272,7 +272,6 @@ class RAGPipeline:
         """
         try:
             # 步骤1: 通过图片路径直接搜索相似图片
-            # txtai支持直接使用图片路径进行搜索
             logger.info(f"开始检索相似图片: {image_path}, k={k}")
             retrieved_results = self.retriever.search_by_image(
                 image_path,
