@@ -1,4 +1,4 @@
-"""Models for ancient script recognition app."""
+"""Models for ancient script ocr app."""
 from django.db import models
 from django.utils import timezone
 

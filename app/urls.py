@@ -1,4 +1,4 @@
-"""URL patterns for ancient script recognition app."""
+"""URL patterns for ancient script ocr app."""
 from django.urls import path
 from . import views
 

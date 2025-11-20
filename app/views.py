@@ -1,4 +1,4 @@
-"""Views for ancient script recognition app with end-to-end RAG integration."""
+"""Views for ancient script ocr app with end-to-end RAG integration."""
 import base64
 import io
 import json

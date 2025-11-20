@@ -1,4 +1,4 @@
-"""URL configuration for ancient script recognition project."""
+"""URL configuration for ancient script ocr project."""
 from django.contrib import admin
 from django.urls import path, include
 from django.conf import settings

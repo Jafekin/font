@@ -1,5 +1,5 @@
 """
-Django settings for ancient script recognition project.
+Django settings for ancient script ocr project.
 """
 import os
 from pathlib import Path
