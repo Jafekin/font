@@ -389,6 +389,8 @@ print(resp.json())
 - `ocr/cli.py`：命令行工具，可在仓库根目录直接运行版式分析并输出 JSON。
 - `ocr/ocr.py`：更贴近 PaddleOCR 原生 API 的简单示例脚本，便于测试环境和参数。
 
+![alt text](image.png)
+
 ### 快速使用（命令行）
 
 ```bash
